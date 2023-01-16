@@ -1,0 +1,99 @@
+version: '3'
+
+services:
+    site1:
+      #используем один из последних образов nginx
+      image: nginx:1.23.2
+      #монтируем папку со страничкой сайта index.html
+      volumes:
+        - ./site_1:/usr/share/nginx/html
+      #задаем имя контейнеру
+      container_name: site1
+      #Перенаправление стандартного веб порта 80 (http) на 8072 и порта 443 (https) на 4433
+      ports:
+        - 8072:80
+        - 4433:443
+      #задаем настройки роутера traefik:
+      labels:
+        #Эта метка оповещает traefik, что данный сервис нужно опубликовать
+        - "traefik.enable=true"
+        #Эта метка указывает traefik, что доменное имя <site_name> необходимо связать с данным сервисом.
+        #Запросы, в заголовках которых будет указано данное имя, будут перенаправлены в текущий контейнер.
+        - "traefik.http.routers.site1.rule=Host(`site_name_1`)"
+        #указываем порт-точку входа для нашего сайта, эта настройка прописана в конфиге traefik
+        #websecure = 443 port
+        - "traefik.http.routers.site1.entrypoints=websecure"
+        #указываем какой resolver будет использовать роутер traefik для получения ssl сертификата.
+        - "traefik.http.routers.site1.tls.certresolver=myresolver"
+        #указываем сеть docker контейнеров
+      networks:
+        - traefik-network
+
+    site2:
+      #используем один из последних образов nginx
+      image: nginx:1.23.2
+      #монтируем папку со страничкой сайта index.html
+      volumes:
+        - ./site_2:/usr/share/nginx/html
+      #задаем имя контейнеру
+      container_name: site2
+      #Перенаправление стандартного веб порта 80 (http) на 8054 и порта 443 (https) на 4432
+      ports:
+       - 8054:80
+       - 4432:443
+      labels:
+        #Эта метка оповещает traefik, что данный сервис нужно опубликовать
+        - "traefik.enable=true"
+        #Эта метка указывает traefik, что доменное имя <site_name_2> необходимо связать с данным сервисом.
+        #Запросы, в заголовках которых будет указано данное имя, будут перенаправлены в текущий контейнер.
+        - "traefik.http.routers.site2.rule=Host(`site_name_2`)"
+        #указываем порт-точку входа для нашего сайта, эта настройка прописана в конфиге traefik
+        #websecure = 443 port
+        - "traefik.http.routers.site2.entrypoints=websecure"
+        #указываем какой resolver будет использовать роутер traefik для получения ssl сертификата.
+        - "traefik.http.routers.site2.tls.certresolver=myresolver"
+      #указываем сеть docker контейнеров
+      networks:
+        - traefik-network
+    traefik:
+      #используем один из последних образов traefik
+      image: traefik:v3.0
+      #задаем имя контейнера
+      container_name: traefik
+      command:
+        #указываем, что используем docker provider
+        - "--providers.docker=true"
+        #Запрещаем автоматическое добавление HTTP сервисов и HTTP маршрутов в traefik.
+        #Если этого не сделать, то traefik опубликует все docker контейнеры, в которых есть expose порта наружу автоматически.
+        #В качестве доменного имени он будет использовать имя контейнера.
+        - "--providers.docker.exposedbydefault=false"
+        #Настраиваем entrypoint для httpchallenge
+        - "--certificatesresolvers.myresolver.acme.httpchallenge=web"
+        #Настраиваем режим выдачи сертификатов Let's Encrypt через http challenge
+        - "--certificatesresolvers.myresolver.acme.httpchallenge=true"
+        #Настраиваем email адрес для регистрации в центре сертификации
+        - "--certificatesresolvers.myresolver.acme.email=myemail@email.ru"
+      #указываем, какие порты нужно слушать роутеру
+      #Перенаправление стандартного веб порта 80 (http) на docker машине в аналогичный порт контейнера traefik.
+      #Это нужно для обработки и маршрутизации полезного трафика.
+      ports:
+        - 80:80
+        - 8080:8080
+        - 443:443
+      labels:
+        #Эта метка оповещает traefik, что данный сервис нужно опубликовать
+        - "traefik.enable=true"
+      volumes:
+        #Подключаем docker.sock докер машины внутрь контейнера traefik.
+        #Это необходимо, чтобы traefik мог отслеживать изменения в чужих контейнерах.
+        #Он будет перенастраивать свою конфигурацию на лету, исходя из меток, принадлежащих другим контейнерам.
+        - /var/run/docker.sock:/var/run/docker.sock
+        #монтируем папку для сертификатов
+        - ./letsencrypt:/letsencrypt
+        #монтируем папку для конфига traefik
+        - ./traefik_config/:/etc/traefik
+      networks:
+        - traefik-network
+networks:
+  traefik-network:
+    external: true
